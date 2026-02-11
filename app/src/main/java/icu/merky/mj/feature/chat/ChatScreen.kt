@@ -23,6 +23,7 @@ fun ChatScreen(
     uiState: ChatUiState,
     onInputChanged: (String) -> Unit,
     onSend: () -> Unit,
+    onToggleListening: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -35,6 +36,10 @@ fun ChatScreen(
             text = "Chat",
             style = MaterialTheme.typography.headlineSmall
         )
+        Text(text = "Listening: ${uiState.listening} | Speaking: ${uiState.speaking}")
+        if (uiState.speechPartial.isNotBlank()) {
+            Text(text = "Speech partial: ${uiState.speechPartial}")
+        }
 
         LazyColumn(
             modifier = Modifier
@@ -63,6 +68,9 @@ fun ChatScreen(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            Button(onClick = onToggleListening) {
+                Text(if (uiState.listening) "Stop Mic" else "Start Mic")
+            }
             OutlinedTextField(
                 value = uiState.input,
                 onValueChange = onInputChanged,

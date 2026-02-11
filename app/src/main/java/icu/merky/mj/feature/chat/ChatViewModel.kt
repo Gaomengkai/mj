@@ -6,8 +6,13 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import icu.merky.mj.core.result.AppResult
 import icu.merky.mj.domain.model.ChatStreamState
 import icu.merky.mj.domain.usecase.ObserveConversationMessagesUseCase
+import icu.merky.mj.domain.usecase.ObserveSpeechListeningUseCase
+import icu.merky.mj.domain.usecase.ObserveSpeakingUseCase
+import icu.merky.mj.domain.usecase.ObserveSpeechPartialResultsUseCase
 import icu.merky.mj.domain.usecase.SendChatMessageUseCase
+import icu.merky.mj.domain.usecase.SpeakTextUseCase
 import icu.merky.mj.domain.usecase.StreamAssistantResponseUseCase
+import icu.merky.mj.domain.usecase.ToggleSpeechListeningUseCase
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,7 +24,12 @@ import javax.inject.Inject
 class ChatViewModel @Inject constructor(
     observeConversationMessagesUseCase: ObserveConversationMessagesUseCase,
     private val sendChatMessageUseCase: SendChatMessageUseCase,
-    private val streamAssistantResponseUseCase: StreamAssistantResponseUseCase
+    private val streamAssistantResponseUseCase: StreamAssistantResponseUseCase,
+    observeSpeechPartialResultsUseCase: ObserveSpeechPartialResultsUseCase,
+    observeSpeechListeningUseCase: ObserveSpeechListeningUseCase,
+    private val toggleSpeechListeningUseCase: ToggleSpeechListeningUseCase,
+    observeSpeakingUseCase: ObserveSpeakingUseCase,
+    private val speakTextUseCase: SpeakTextUseCase
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
@@ -30,6 +40,35 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             observeConversationMessagesUseCase(sessionId).collect { messages ->
                 _uiState.update { current -> current.copy(messages = messages) }
+            }
+        }
+
+        viewModelScope.launch {
+            observeSpeechPartialResultsUseCase().collect { partial ->
+                _uiState.update { current ->
+                    if (!current.listening) {
+                        current
+                    } else {
+                        current.copy(speechPartial = partial, input = partial)
+                    }
+                }
+            }
+        }
+
+        viewModelScope.launch {
+            observeSpeechListeningUseCase().collect { listening ->
+                _uiState.update { current ->
+                    current.copy(
+                        listening = listening,
+                        speechPartial = if (listening) current.speechPartial else ""
+                    )
+                }
+            }
+        }
+
+        viewModelScope.launch {
+            observeSpeakingUseCase().collect { speaking ->
+                _uiState.update { current -> current.copy(speaking = speaking) }
             }
         }
     }
@@ -43,9 +82,12 @@ class ChatViewModel @Inject constructor(
         viewModelScope.launch {
             when (val result = sendChatMessageUseCase(sessionId, content)) {
                 is AppResult.Success -> {
-                    _uiState.update { current -> current.copy(input = "") }
+                    _uiState.update { current -> current.copy(input = "", speechPartial = "") }
                     streamAssistantResponseUseCase(sessionId).collect { state ->
                         _uiState.update { current -> current.copy(streamState = state) }
+                        if (state is ChatStreamState.Success) {
+                            speakTextUseCase(state.message.content)
+                        }
                     }
                 }
 
@@ -55,6 +97,12 @@ class ChatViewModel @Inject constructor(
                     }
                 }
             }
+        }
+    }
+
+    fun toggleListening() {
+        viewModelScope.launch {
+            toggleSpeechListeningUseCase()
         }
     }
 

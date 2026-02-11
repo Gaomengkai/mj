@@ -12,6 +12,7 @@ fun ChatRoute(
     ChatScreen(
         uiState = uiState.value,
         onInputChanged = viewModel::onInputChanged,
-        onSend = viewModel::send
+        onSend = viewModel::send,
+        onToggleListening = viewModel::toggleListening
     )
 }
