@@ -8,7 +8,7 @@ import javax.inject.Inject
 class StreamAssistantResponseUseCase @Inject constructor(
     private val chatRepository: ChatRepository
 ) {
-    operator fun invoke(sessionId: Long): Flow<ChatStreamState> {
-        return chatRepository.streamAssistantResponse(sessionId)
+    operator fun invoke(sessionId: Long, systemPrompt: String = ""): Flow<ChatStreamState> {
+        return chatRepository.streamAssistantResponse(sessionId, systemPrompt)
     }
 }

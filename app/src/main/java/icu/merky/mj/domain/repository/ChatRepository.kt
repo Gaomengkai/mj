@@ -9,5 +9,6 @@ interface ChatRepository {
     fun observeMessages(sessionId: Long): Flow<List<ChatMessage>>
     suspend fun ensureSession(sessionId: Long): AppResult<Unit>
     suspend fun sendUserMessage(sessionId: Long, content: String): AppResult<Unit>
-    fun streamAssistantResponse(sessionId: Long): Flow<ChatStreamState>
+    fun streamAssistantResponse(sessionId: Long, systemPrompt: String = ""): Flow<ChatStreamState>
+    suspend fun clearSessionMessages(sessionId: Long): AppResult<Unit>
 }

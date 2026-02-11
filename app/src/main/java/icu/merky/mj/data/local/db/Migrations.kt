@@ -69,4 +69,47 @@ object Migrations {
             )
         }
     }
+
+    val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS diary_entry (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    session_id INTEGER NOT NULL,
+                    content TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
+                )
+                """.trimIndent()
+            )
+
+            db.execSQL(
+                """
+                CREATE INDEX IF NOT EXISTS index_diary_entry_session_id
+                ON diary_entry(session_id)
+                """.trimIndent()
+            )
+        }
+    }
+
+    val MIGRATION_4_5 = object : Migration(4, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS player_profile (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                    name TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
+                )
+                """.trimIndent()
+            )
+
+            db.execSQL(
+                """
+                INSERT OR IGNORE INTO player_profile (id, name, created_at)
+                VALUES (1, 'Player 1', strftime('%s','now') * 1000)
+                """.trimIndent()
+            )
+        }
+    }
 }

@@ -15,7 +15,9 @@ import icu.merky.mj.data.local.datastore.SettingsDataStoreSource
 import icu.merky.mj.data.local.db.AppDatabase
 import icu.merky.mj.data.local.db.dao.ConversationMessageDao
 import icu.merky.mj.data.local.db.dao.ConversationSessionDao
+import icu.merky.mj.data.local.db.dao.DiaryEntryDao
 import icu.merky.mj.data.local.db.dao.HealthCheckDao
+import icu.merky.mj.data.local.db.dao.PlayerProfileDao
 import icu.merky.mj.data.local.db.dao.RelationshipStateDao
 import icu.merky.mj.data.local.db.Migrations
 import javax.inject.Singleton
@@ -32,6 +34,8 @@ object StorageModule {
         return Room.databaseBuilder(context, AppDatabase::class.java, DATABASE_NAME)
             .addMigrations(Migrations.MIGRATION_1_2)
             .addMigrations(Migrations.MIGRATION_2_3)
+            .addMigrations(Migrations.MIGRATION_3_4)
+            .addMigrations(Migrations.MIGRATION_4_5)
             .build()
     }
 
@@ -51,6 +55,16 @@ object StorageModule {
     @Provides
     fun provideConversationMessageDao(appDatabase: AppDatabase): ConversationMessageDao {
         return appDatabase.conversationMessageDao()
+    }
+
+    @Provides
+    fun provideDiaryEntryDao(appDatabase: AppDatabase): DiaryEntryDao {
+        return appDatabase.diaryEntryDao()
+    }
+
+    @Provides
+    fun providePlayerProfileDao(appDatabase: AppDatabase): PlayerProfileDao {
+        return appDatabase.playerProfileDao()
     }
 
     @Provides

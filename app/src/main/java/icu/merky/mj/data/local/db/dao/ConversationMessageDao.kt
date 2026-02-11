@@ -16,4 +16,7 @@ interface ConversationMessageDao {
 
     @Insert
     suspend fun insert(entity: ConversationMessageEntity): Long
+
+    @Query("DELETE FROM conversation_message WHERE session_id = :sessionId")
+    suspend fun deleteBySessionId(sessionId: Long)
 }

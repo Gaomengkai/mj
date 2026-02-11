@@ -59,13 +59,13 @@ class ChatRepositoryImpl @Inject constructor(
         onFailure = { AppResult.Failure(AppError.Data(it.message ?: "Failed to store user message.")) }
     )
 
-    override fun streamAssistantResponse(sessionId: Long): Flow<ChatStreamState> = flow {
+    override fun streamAssistantResponse(sessionId: Long, systemPrompt: String): Flow<ChatStreamState> = flow {
         emit(ChatStreamState.Loading)
         val contextMessages = conversationMessageDao.getMessages(sessionId).map { it.toDomain() }
         var latest = ""
         var failureReason: String? = null
 
-        aiChatService.streamReply(contextMessages).collect { chunk ->
+        aiChatService.streamReply(contextMessages, systemPrompt).collect { chunk ->
             when (chunk) {
                 is AppResult.Success -> {
                     latest = chunk.data
@@ -99,6 +99,14 @@ class ChatRepositoryImpl @Inject constructor(
 
         emit(ChatStreamState.Success(message = persisted.toDomain()))
     }
+
+    override suspend fun clearSessionMessages(sessionId: Long): AppResult<Unit> = runCatching {
+        conversationMessageDao.deleteBySessionId(sessionId)
+        conversationSessionDao.updateTimestamp(sessionId, System.currentTimeMillis())
+    }.fold(
+        onSuccess = { AppResult.Success(Unit) },
+        onFailure = { AppResult.Failure(AppError.Data(it.message ?: "Failed to clear messages.")) }
+    )
 
     private fun ConversationMessageEntity.toDomain(): ChatMessage {
         return ChatMessage(

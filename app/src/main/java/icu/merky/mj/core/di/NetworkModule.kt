@@ -4,7 +4,7 @@ import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
-import icu.merky.mj.data.remote.MockAIChatService
+import icu.merky.mj.data.remote.OpenAICompatibleChatService
 import icu.merky.mj.domain.repository.AIChatService
 import javax.inject.Singleton
 
@@ -13,5 +13,5 @@ import javax.inject.Singleton
 abstract class NetworkModule {
     @Binds
     @Singleton
-    abstract fun bindAIChatService(impl: MockAIChatService): AIChatService
+    abstract fun bindAIChatService(impl: OpenAICompatibleChatService): AIChatService
 }

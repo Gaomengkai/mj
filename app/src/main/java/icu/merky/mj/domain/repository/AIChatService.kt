@@ -5,5 +5,8 @@ import icu.merky.mj.domain.model.ChatMessage
 import kotlinx.coroutines.flow.Flow
 
 interface AIChatService {
-    fun streamReply(messages: List<ChatMessage>): Flow<AppResult<String>>
+    fun ping(): Flow<AppResult<Unit>>
+    fun streamReply(messages: List<ChatMessage>, systemPrompt: String = ""): Flow<AppResult<String>>
+    fun generateDiary(messages: List<ChatMessage>, systemPrompt: String): Flow<AppResult<String>>
+    fun generateQuickReplies(messages: List<ChatMessage>, systemPrompt: String): Flow<AppResult<List<String>>>
 }

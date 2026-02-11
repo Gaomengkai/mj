@@ -6,6 +6,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @Composable
 fun ChatRoute(
+    onOpenSettings: () -> Unit,
+    onOpenDiary: () -> Unit,
     viewModel: ChatViewModel = hiltViewModel()
 ) {
     val uiState = viewModel.uiState.collectAsStateWithLifecycle()
@@ -13,6 +15,12 @@ fun ChatRoute(
         uiState = uiState.value,
         onInputChanged = viewModel::onInputChanged,
         onSend = viewModel::send,
-        onToggleListening = viewModel::toggleListening
+        onToggleListening = viewModel::toggleListening,
+        onApplyQuickReply = viewModel::applyQuickReply,
+        onExitChat = viewModel::onExitChat,
+        onConsumeExitMessage = viewModel::consumeExitMessage,
+        onStartChat = viewModel::startChat,
+        onOpenSettings = onOpenSettings,
+        onOpenDiary = onOpenDiary
     )
 }

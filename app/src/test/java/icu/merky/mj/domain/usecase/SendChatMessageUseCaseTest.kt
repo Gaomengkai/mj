@@ -35,6 +35,13 @@ class SendChatMessageUseCaseTest {
             return AppResult.Success(Unit)
         }
 
-        override fun streamAssistantResponse(sessionId: Long): Flow<ChatStreamState> = emptyFlow()
+        override fun streamAssistantResponse(
+            sessionId: Long,
+            systemPrompt: String
+        ): Flow<ChatStreamState> = emptyFlow()
+
+        override suspend fun clearSessionMessages(sessionId: Long): AppResult<Unit> {
+            return AppResult.Success(Unit)
+        }
     }
 }

@@ -10,7 +10,11 @@ import kotlinx.coroutines.flow.flow
 import javax.inject.Inject
 
 class MockAIChatService @Inject constructor() : AIChatService {
-    override fun streamReply(messages: List<ChatMessage>): Flow<AppResult<String>> = flow {
+    override fun ping(): Flow<AppResult<Unit>> = flow {
+        emit(AppResult.Success(Unit))
+    }
+
+    override fun streamReply(messages: List<ChatMessage>, systemPrompt: String): Flow<AppResult<String>> = flow {
         val latestUser = messages.lastOrNull { it.role == ChatRole.USER }?.content.orEmpty()
         val target = if (latestUser.isBlank()) {
             "Hi, I am Yuki."
@@ -25,5 +29,29 @@ class MockAIChatService @Inject constructor() : AIChatService {
             emit(AppResult.Success(accumulator))
             delay(30)
         }
+    }
+
+    override fun generateDiary(messages: List<ChatMessage>, systemPrompt: String): Flow<AppResult<String>> = flow {
+        val latestUser = messages.lastOrNull { it.role == ChatRole.USER }?.content.orEmpty()
+        val output = if (latestUser.isBlank()) {
+            "Today was calm."
+        } else {
+            "Diary: We talked about '$latestUser'."
+        }
+        emit(AppResult.Success(output))
+    }
+
+    override fun generateQuickReplies(
+        messages: List<ChatMessage>,
+        systemPrompt: String
+    ): Flow<AppResult<List<String>>> = flow {
+        emit(
+            AppResult.Success(
+                listOf(
+                    "Got it, tell me more.",
+                    "That sounds nice, Yuki."
+                )
+            )
+        )
     }
 }

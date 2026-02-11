@@ -70,11 +70,26 @@ class ChatRepositoryImplTest {
     }
 
     private class FakeAIChatService : AIChatService {
-        override fun streamReply(messages: List<ChatMessage>): Flow<AppResult<String>> {
+        override fun ping(): Flow<AppResult<Unit>> {
+            return flowOf(AppResult.Success(Unit))
+        }
+
+        override fun streamReply(messages: List<ChatMessage>, systemPrompt: String): Flow<AppResult<String>> {
             return flowOf(
                 AppResult.Success("Hi"),
                 AppResult.Success("Hi there")
             )
+        }
+
+        override fun generateDiary(messages: List<ChatMessage>, systemPrompt: String): Flow<AppResult<String>> {
+            return flowOf(AppResult.Success("diary"))
+        }
+
+        override fun generateQuickReplies(
+            messages: List<ChatMessage>,
+            systemPrompt: String
+        ): Flow<AppResult<List<String>>> {
+            return flowOf(AppResult.Success(listOf("a", "b")))
         }
     }
 
@@ -103,6 +118,10 @@ class ChatRepositoryImplTest {
             val persisted = entity.copy(id = id)
             items.value = items.value + persisted
             return id
+        }
+
+        override suspend fun deleteBySessionId(sessionId: Long) {
+            items.value = items.value.filterNot { it.sessionId == sessionId }
         }
     }
 }
