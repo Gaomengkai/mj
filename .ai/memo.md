@@ -1,6 +1,6 @@
 # Memo (Compressed)
 
-Date: 2026-02-11
+Date: 2026-02-13
 
 ## Toolchain lock (stable matrix)
 - AGP `8.5.2`
@@ -20,10 +20,25 @@ Date: 2026-02-11
 
 ## Chat orchestration
 - Chat1: main conversation with memory-aware system prompt (from diary).
-- Chat2: generate diary on chat exit.
-- Chat3: generate 2 lazy replies after assistant response.
-- Chat3 supports `${LASTRESPONSE}` replacement (recent two rounds).
+- Chat2: diary generation now uses `chat2DiarySystemPrompt`; dialogue is appended into system prompt and `messages` is not sent.
+- Chat3: quick replies now rely on system prompt only (`messages = emptyList()`), supports `${LASTRESPONSE}` replacement.
 - Quick-reply JSON support: `{ "reply1": "...", "reply2": "..." }`.
+
+## Runtime behavior updates
+- Exit chat diary generation fixed for clear-before-generate race:
+  - snapshot messages first,
+  - clear UI/session immediately,
+  - generate diary in background from snapshot,
+  - show success dialog only when diary generation succeeds.
+- Assistant reply now parses affection marker: `<好感变化:+X>` / `<好感变化:-X>`.
+  - Parsed delta is applied via `AdjustRelationshipStateUseCase` to affection stats.
+- Added real streaming support for Chat1 with OkHttp + SSE (`stream=true`).
+- Added automatic fallback to standard non-streaming mode when SSE is unsupported.
+- Streaming UI now shows tail indicator `◐` during generation; removed automatically after done.
+
+## Dependency / DI updates
+- Added OkHttp dependency (`com.squareup.okhttp3:okhttp:4.12.0`).
+- Added `OkHttpClient` provider in `NetworkModule` for `OpenAICompatibleChatService`.
 
 ## UX updates
 - Settings page scrollable, prompt inputs height-limited, back button present.
@@ -31,7 +46,7 @@ Date: 2026-02-11
 - One-tap clear buttons added for Chat1/2/3 prompt fields.
 - Chat input anchored at bottom; quick replies no longer overlap message list.
 - Added explicit diary entry button in chat/home.
-- On exit, show dialog: `Yuki新写了一篇日记，快来看看吧`.
+- On exit, show dialog: `Yuki新写了一篇日记，快来看看吧` (only on successful diary generation).
 
 ## Multi-player save support
 - Added player domain/repository/use-cases.
@@ -41,14 +56,10 @@ Date: 2026-02-11
 - Chat and Diary now read/write by active player slot.
 - Settings supports create/switch player slots.
 
-## Prompt visibility policy
-- Chat1 system prompt is not inserted as visible user message.
-- Chat2 currently sends without system prompt.
-
 ## Validation
 - Passed:
   - `:app:compileDebugKotlin`
-  - `:app:compileDebugUnitTestKotlin`
 
 ## Next suggested step
-- If needed, evolve from `sessionId == playerId` to full model (`player_id + multi-sessions per player`).
+- Add tests for SSE path and fallback path in `OpenAICompatibleChatService` (including `[DONE]` and non-SSE content-type fallback).
+- Optionally strip control tags (e.g. `<好感变化:+X>`) from displayed/synthesized assistant text while still applying stats.
