@@ -26,10 +26,10 @@ class GenerateQuickRepliesUseCase @Inject constructor(
         val promptConfig = promptConfigRepository.observePromptConfig().first()
         val chat3Prompt = replaceLastResponsePlaceholder(
             basePrompt = promptConfig.chat3LazyReplySystemPrompt,
-            allMessages = allMessages
+            allMessages = recentMessages
         )
         val response = aiChatService.generateQuickReplies(
-            messages = recentMessages,
+            messages = emptyList(),
             systemPrompt = chat3Prompt
         ).first()
 
@@ -60,8 +60,8 @@ class GenerateQuickRepliesUseCase @Inject constructor(
             .takeLast(4)
             .joinToString(separator = "\n") { message ->
                 val rolePrefix = when (message.role) {
-                    ChatRole.USER -> "玩家"
-                    ChatRole.ASSISTANT -> "Yuki"
+                    ChatRole.USER -> "【玩家】"
+                    ChatRole.ASSISTANT -> "【Yuki的台词】"
                     ChatRole.SYSTEM -> "System"
                 }
                 "$rolePrefix: ${message.content}"

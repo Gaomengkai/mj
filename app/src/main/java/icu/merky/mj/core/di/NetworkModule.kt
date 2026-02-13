@@ -2,10 +2,12 @@ package icu.merky.mj.core.di
 
 import dagger.Binds
 import dagger.Module
+import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import icu.merky.mj.data.remote.OpenAICompatibleChatService
 import icu.merky.mj.domain.repository.AIChatService
+import okhttp3.OkHttpClient
 import javax.inject.Singleton
 
 @Module
@@ -14,4 +16,12 @@ abstract class NetworkModule {
     @Binds
     @Singleton
     abstract fun bindAIChatService(impl: OpenAICompatibleChatService): AIChatService
+
+    companion object {
+        @Provides
+        @Singleton
+        fun provideOkHttpClient(): OkHttpClient {
+            return OkHttpClient.Builder().build()
+        }
+    }
 }

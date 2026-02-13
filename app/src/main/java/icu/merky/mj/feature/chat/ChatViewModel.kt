@@ -4,17 +4,19 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import icu.merky.mj.core.result.AppResult
-import icu.merky.mj.domain.model.ChatStreamState
 import icu.merky.mj.domain.model.ChatRole
+import icu.merky.mj.domain.model.ChatStreamState
+import icu.merky.mj.domain.usecase.AdjustRelationshipStateUseCase
 import icu.merky.mj.domain.usecase.BuildChat1SystemPromptUseCase
 import icu.merky.mj.domain.usecase.ClearChatSessionUseCase
 import icu.merky.mj.domain.usecase.GenerateDiaryOnChatExitUseCase
 import icu.merky.mj.domain.usecase.GenerateQuickRepliesUseCase
-import icu.merky.mj.domain.usecase.ObserveConversationMessagesUseCase
 import icu.merky.mj.domain.usecase.ObserveActivePlayerIdUseCase
+import icu.merky.mj.domain.usecase.ObserveConversationMessagesUseCase
 import icu.merky.mj.domain.usecase.ObserveQuickReplySuggestionsUseCase
-import icu.merky.mj.domain.usecase.ObserveSpeechListeningUseCase
+import icu.merky.mj.domain.usecase.ObserveRelationshipStateUseCase
 import icu.merky.mj.domain.usecase.ObserveSpeakingUseCase
+import icu.merky.mj.domain.usecase.ObserveSpeechListeningUseCase
 import icu.merky.mj.domain.usecase.ObserveSpeechPartialResultsUseCase
 import icu.merky.mj.domain.usecase.SendChatMessageUseCase
 import icu.merky.mj.domain.usecase.SpeakTextUseCase
@@ -34,6 +36,7 @@ class ChatViewModel @Inject constructor(
     observeConversationMessagesUseCase: ObserveConversationMessagesUseCase,
     observeActivePlayerIdUseCase: ObserveActivePlayerIdUseCase,
     observeQuickReplySuggestionsUseCase: ObserveQuickReplySuggestionsUseCase,
+    observeRelationshipStateUseCase: ObserveRelationshipStateUseCase,
     private val sendChatMessageUseCase: SendChatMessageUseCase,
     private val streamAssistantResponseUseCase: StreamAssistantResponseUseCase,
     private val buildChat1SystemPromptUseCase: BuildChat1SystemPromptUseCase,
@@ -41,6 +44,7 @@ class ChatViewModel @Inject constructor(
     private val startChatSessionUseCase: StartChatSessionUseCase,
     private val generateQuickRepliesUseCase: GenerateQuickRepliesUseCase,
     private val generateDiaryOnChatExitUseCase: GenerateDiaryOnChatExitUseCase,
+    private val adjustRelationshipStateUseCase: AdjustRelationshipStateUseCase,
     observeSpeechPartialResultsUseCase: ObserveSpeechPartialResultsUseCase,
     observeSpeechListeningUseCase: ObserveSpeechListeningUseCase,
     private val toggleSpeechListeningUseCase: ToggleSpeechListeningUseCase,
@@ -119,6 +123,12 @@ class ChatViewModel @Inject constructor(
                 _uiState.update { current -> current.copy(speaking = speaking) }
             }
         }
+
+        viewModelScope.launch {
+            observeRelationshipStateUseCase().collect { relationshipState ->
+                _uiState.update { current -> current.copy(relationshipState = relationshipState) }
+            }
+        }
     }
 
     fun onInputChanged(value: String) {
@@ -142,10 +152,11 @@ class ChatViewModel @Inject constructor(
                     streamAssistantResponseUseCase(sessionId, systemPrompt).collect { state ->
                         _uiState.update { current -> current.copy(streamState = state) }
                         if (state is ChatStreamState.Success) {
-                            speakTextUseCase(state.message.content)
-                            if (state.message.role == ChatRole.ASSISTANT) {
-                                generateQuickRepliesUseCase(sessionId)
-                            }
+                            handleAssistantMessageSideEffects(
+                                sessionId = sessionId,
+                                role = state.message.role,
+                                content = state.message.content
+                            )
                         }
                     }
                 }
@@ -166,8 +177,10 @@ class ChatViewModel @Inject constructor(
     fun onExitChat() {
         viewModelScope.launch {
             val sessionId = activePlayerId.value
-            val hadMessages = uiState.value.messages.isNotEmpty()
-            val diaryResult = generateDiaryOnChatExitUseCase(sessionId)
+            val messagesSnapshot = uiState.value.messages
+            val hadMessages = messagesSnapshot.isNotEmpty()
+
+            // 立即清空页面
             clearChatSessionUseCase(sessionId)
             _uiState.update { current ->
                 current.copy(
@@ -175,12 +188,21 @@ class ChatViewModel @Inject constructor(
                     speechPartial = "",
                     streamState = ChatStreamState.Idle,
                     sessionEnded = true,
-                    exitMessage = if (diaryResult is AppResult.Success && hadMessages) {
-                        EXIT_DIARY_MESSAGE
-                    } else {
-                        null
-                    }
+                    exitMessage = null
                 )
+            }
+
+            // 在后台生成日记，完成后再显示提示
+            if (hadMessages) {
+                val diaryResult = generateDiaryOnChatExitUseCase(
+                    sessionId = sessionId,
+                    sourceMessages = messagesSnapshot
+                )
+                if (diaryResult is AppResult.Success) {
+                    _uiState.update { current ->
+                        current.copy(exitMessage = EXIT_DIARY_MESSAGE)
+                    }
+                }
             }
         }
     }
@@ -198,9 +220,12 @@ class ChatViewModel @Inject constructor(
                     _uiState.update { current -> current.copy(sessionEnded = false, exitMessage = null) }
                     streamAssistantResponseUseCase(sessionId, starterPrompt).collect { state ->
                         _uiState.update { current -> current.copy(streamState = state) }
-                        if (state is ChatStreamState.Success && state.message.role == ChatRole.ASSISTANT) {
-                            speakTextUseCase(state.message.content)
-                            generateQuickRepliesUseCase(sessionId)
+                        if (state is ChatStreamState.Success) {
+                            handleAssistantMessageSideEffects(
+                                sessionId = sessionId,
+                                role = state.message.role,
+                                content = state.message.content
+                            )
                         }
                     }
                 }
@@ -220,8 +245,33 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    private suspend fun handleAssistantMessageSideEffects(sessionId: Long, role: ChatRole, content: String) {
+        speakTextUseCase(content)
+        if (role != ChatRole.ASSISTANT) {
+            return
+        }
+
+        parseAffectionDelta(content)?.let { delta ->
+            adjustRelationshipStateUseCase(
+                affectionDelta = delta,
+                trustDelta = 0,
+                updatedAt = System.currentTimeMillis()
+            )
+        }
+        generateQuickRepliesUseCase(sessionId)
+    }
+
+    private fun parseAffectionDelta(content: String): Int? {
+        return affectionDeltaRegex
+            .find(content)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+    }
+
     private companion object {
         const val DEFAULT_PLAYER_ID = 1L
         const val EXIT_DIARY_MESSAGE = "Yuki新写了一篇日记，快来看看吧"
+        val affectionDeltaRegex = Regex("<好感变化\\s*[:：]\\s*([+-]?\\d+)\\s*>")
     }
 }

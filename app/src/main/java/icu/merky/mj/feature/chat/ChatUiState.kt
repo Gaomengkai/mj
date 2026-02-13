@@ -3,6 +3,8 @@ package icu.merky.mj.feature.chat
 import icu.merky.mj.domain.model.ChatMessage
 import icu.merky.mj.domain.model.ChatStreamState
 import icu.merky.mj.domain.model.QuickReplySuggestion
+import icu.merky.mj.domain.model.RelationshipState
+import icu.merky.mj.domain.model.RelationshipMood
 
 data class ChatUiState(
     val activePlayerId: Long = 1L,
@@ -14,5 +16,11 @@ data class ChatUiState(
     val speaking: Boolean = false,
     val quickReplies: List<QuickReplySuggestion> = emptyList(),
     val sessionEnded: Boolean = false,
-    val exitMessage: String? = null
+    val exitMessage: String? = null,
+    val relationshipState: RelationshipState = RelationshipState(
+        affection = 0,
+        trust = 0,
+        mood = RelationshipMood.NEUTRAL,
+        updatedAt = 0L
+    )
 )

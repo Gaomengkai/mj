@@ -14,8 +14,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material3.Button
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -25,12 +26,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import icu.merky.mj.R
 import icu.merky.mj.domain.model.ChatRole
 import icu.merky.mj.domain.model.ChatStreamState
-import androidx.compose.material3.Icon
-import androidx.compose.ui.res.painterResource
 
 @Composable
 fun ChatScreen(
@@ -107,6 +107,11 @@ fun ChatScreen(
             text = "Listening: ${uiState.listening} | Speaking: ${uiState.speaking}",
             modifier = Modifier.padding(top = 8.dp)
         )
+        Text(
+            text = "好感度: ${uiState.relationshipState.affection} | 信任度: ${uiState.relationshipState.trust}",
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(top = 4.dp)
+        )
         if (uiState.speechPartial.isNotBlank()) {
             Text(text = "Speech partial: ${uiState.speechPartial}")
         }
@@ -145,7 +150,7 @@ fun ChatScreen(
             val stream = uiState.streamState
             if (stream is ChatStreamState.Streaming) {
                 item(key = "streaming_preview") {
-                    Text(text = "Yuki: ${stream.content}")
+                    Text(text = "Yuki: ${stream.content}◐")
                 }
             }
         }

@@ -1,5 +1,6 @@
 package icu.merky.mj.data.remote
 
+import android.util.Log
 import icu.merky.mj.core.coroutine.DispatcherProvider
 import icu.merky.mj.core.result.AppError
 import icu.merky.mj.core.result.AppResult
@@ -9,12 +10,16 @@ import icu.merky.mj.domain.model.ModelApiConfig
 import icu.merky.mj.domain.repository.AIChatService
 import icu.merky.mj.domain.repository.ModelApiConfigRepository
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
-import android.util.Log
 import java.io.BufferedReader
 import java.io.InputStream
 import java.io.InputStreamReader
@@ -24,7 +29,8 @@ import javax.inject.Inject
 
 class OpenAICompatibleChatService @Inject constructor(
     private val modelApiConfigRepository: ModelApiConfigRepository,
-    private val dispatcherProvider: DispatcherProvider
+    private val dispatcherProvider: DispatcherProvider,
+    private val okHttpClient: OkHttpClient
 ) : AIChatService {
     private fun logPrompt(tag: String, prompt: String) {
         if (prompt.isBlank()) {
@@ -50,36 +56,38 @@ class OpenAICompatibleChatService @Inject constructor(
         }
     }
 
-    override fun streamReply(messages: List<ChatMessage>, systemPrompt: String): Flow<AppResult<String>> = flow {
+    override fun streamReply(messages: List<ChatMessage>, systemPrompt: String): Flow<AppResult<String>> = channelFlow {
         logPrompt("Chat1", systemPrompt)
         when (val configResult = loadValidatedConfig()) {
-            is AppResult.Failure -> emit(configResult)
+            is AppResult.Failure -> {
+                trySend(configResult)
+            }
+
             is AppResult.Success -> {
                 val config = configResult.data
-                val payload = buildChatCompletionPayload(
-                    model = config.model,
-                    messages = messages,
-                    systemPrompt = systemPrompt
-                )
                 when (
-                    val requestResult = postRequest(
-                        url = chatCompletionsUrl(config.endpoint),
-                        apiKey = config.apiKey,
-                        body = payload
+                    val streamAttempt = streamReplyWithSse(
+                        config = config,
+                        messages = messages,
+                        systemPrompt = systemPrompt,
+                        onPartial = { partial -> trySend(AppResult.Success(partial)) }
                     )
                 ) {
-                    is AppResult.Failure -> emit(requestResult)
-                    is AppResult.Success -> {
-                        val content = parseAssistantContent(requestResult.data)
-                        if (content.isBlank()) {
-                            emit(AppResult.Failure(AppError.Network("Model returned empty response.")))
-                            return@flow
-                        }
-                        val chunks = content.split(" ")
-                        var aggregate = ""
-                        chunks.forEach { token ->
-                            aggregate = if (aggregate.isBlank()) token else "$aggregate $token"
-                            emit(AppResult.Success(aggregate))
+                    is StreamAttempt.Completed -> Unit
+                    is StreamAttempt.Error -> {
+                        trySend(AppResult.Failure(AppError.Network(streamAttempt.reason)))
+                    }
+
+                    is StreamAttempt.Fallback -> {
+                        when (
+                            val fallbackResult = requestNonStreamingReply(
+                                config = config,
+                                messages = messages,
+                                systemPrompt = systemPrompt
+                            )
+                        ) {
+                            is AppResult.Success -> trySend(AppResult.Success(fallbackResult.data))
+                            is AppResult.Failure -> trySend(fallbackResult)
                         }
                     }
                 }
@@ -97,7 +105,8 @@ class OpenAICompatibleChatService @Inject constructor(
                     val payload = buildChatCompletionPayload(
                         model = config.model,
                         messages = messages,
-                        systemPrompt = systemPrompt
+                        systemPrompt = systemPrompt,
+                        stream = false
                     )
                     when (
                         val requestResult = postRequest(
@@ -132,7 +141,8 @@ class OpenAICompatibleChatService @Inject constructor(
                 val payload = buildChatCompletionPayload(
                     model = config.model,
                     messages = messages,
-                    systemPrompt = systemPrompt
+                    systemPrompt = systemPrompt,
+                    stream = false
                 )
                 when (
                     val requestResult = postRequest(
@@ -153,6 +163,141 @@ class OpenAICompatibleChatService @Inject constructor(
                 }
             }
         }
+    }
+
+    private suspend fun requestNonStreamingReply(
+        config: ModelApiConfig,
+        messages: List<ChatMessage>,
+        systemPrompt: String
+    ): AppResult<String> {
+        val payload = buildChatCompletionPayload(
+            model = config.model,
+            messages = messages,
+            systemPrompt = systemPrompt,
+            stream = false
+        )
+        return when (
+            val requestResult = postRequest(
+                url = chatCompletionsUrl(config.endpoint),
+                apiKey = config.apiKey,
+                body = payload
+            )
+        ) {
+            is AppResult.Failure -> requestResult
+            is AppResult.Success -> {
+                val content = parseAssistantContent(requestResult.data)
+                if (content.isBlank()) {
+                    AppResult.Failure(AppError.Network("Model returned empty response."))
+                } else {
+                    AppResult.Success(content.trim())
+                }
+            }
+        }
+    }
+
+    private suspend fun streamReplyWithSse(
+        config: ModelApiConfig,
+        messages: List<ChatMessage>,
+        systemPrompt: String,
+        onPartial: (String) -> Unit
+    ): StreamAttempt = withContext(dispatcherProvider.io) {
+        val payload = buildChatCompletionPayload(
+            model = config.model,
+            messages = messages,
+            systemPrompt = systemPrompt,
+            stream = true
+        )
+
+        val request = Request.Builder()
+            .url(chatCompletionsUrl(config.endpoint))
+            .addHeader("Authorization", "Bearer ${config.apiKey}")
+            .addHeader("Content-Type", "application/json")
+            .addHeader("Accept", "text/event-stream")
+            .post(payload.toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+
+        runCatching {
+            okHttpClient.newCall(request).execute().use { response ->
+                val code = response.code
+                if (!response.isSuccessful) {
+                    val rawError = response.body?.string().orEmpty()
+                    if (isSseUnsupported(code = code, responseBody = rawError)) {
+                        return@use StreamAttempt.Fallback
+                    }
+                    return@use StreamAttempt.Error(
+                        "Request failed($code): ${extractErrorMessage(rawError)}"
+                    )
+                }
+
+                val contentType = response.header("Content-Type").orEmpty().lowercase()
+                if (!contentType.contains("text/event-stream")) {
+                    val rawBody = response.body?.string().orEmpty()
+                    val content = parseAssistantContent(rawBody)
+                    return@use if (content.isNotBlank()) {
+                        onPartial(content)
+                        StreamAttempt.Completed
+                    } else {
+                        StreamAttempt.Fallback
+                    }
+                }
+
+                val source = response.body?.source()
+                    ?: return@use StreamAttempt.Error("Empty response body for stream request.")
+
+                var aggregate = ""
+                while (!source.exhausted()) {
+                    val line = source.readUtf8Line() ?: break
+                    if (!line.startsWith("data:")) {
+                        continue
+                    }
+                    val data = line.removePrefix("data:").trim()
+                    if (data == "[DONE]") {
+                        break
+                    }
+                    val delta = parseAssistantStreamDelta(data)
+                    if (delta.isBlank()) {
+                        continue
+                    }
+                    aggregate += delta
+                    onPartial(aggregate)
+                }
+
+                if (aggregate.isBlank()) {
+                    StreamAttempt.Error("Model returned empty response.")
+                } else {
+                    StreamAttempt.Completed
+                }
+            }
+        }.getOrElse { throwable ->
+            StreamAttempt.Fallback
+        }
+    }
+
+    private fun parseAssistantStreamDelta(raw: String): String {
+        return runCatching {
+            val root = JSONObject(raw)
+            val choices = root.optJSONArray("choices") ?: return@runCatching ""
+            val firstChoice = choices.optJSONObject(0) ?: return@runCatching ""
+            val delta = firstChoice.optJSONObject("delta")
+            if (delta != null) {
+                delta.optString("content", "")
+            } else {
+                firstChoice.optString("text", "")
+            }
+        }.getOrDefault("")
+    }
+
+    private fun isSseUnsupported(code: Int, responseBody: String): Boolean {
+        if (code !in 400..499) {
+            return false
+        }
+        val normalized = responseBody.lowercase()
+        return normalized.contains("stream") && (
+            normalized.contains("unsupported") ||
+                normalized.contains("not support") ||
+                normalized.contains("not supported") ||
+                normalized.contains("invalid")
+            )
     }
 
     private suspend fun loadValidatedConfig(): AppResult<ModelApiConfig> {
@@ -242,7 +387,8 @@ class OpenAICompatibleChatService @Inject constructor(
     private fun buildChatCompletionPayload(
         model: String,
         messages: List<ChatMessage>,
-        systemPrompt: String
+        systemPrompt: String,
+        stream: Boolean
     ): String {
         val jsonMessages = JSONArray().apply {
             if (systemPrompt.isNotBlank()) {
@@ -264,7 +410,7 @@ class OpenAICompatibleChatService @Inject constructor(
         return JSONObject()
             .put("model", model)
             .put("messages", jsonMessages)
-            .put("stream", false)
+            .put("stream", stream)
             .toString()
     }
 
@@ -358,9 +504,16 @@ class OpenAICompatibleChatService @Inject constructor(
         }
     }
 
+    private sealed interface StreamAttempt {
+        data object Completed : StreamAttempt
+        data object Fallback : StreamAttempt
+        data class Error(val reason: String) : StreamAttempt
+    }
+
     private companion object {
         const val LOG_TAG = "YukiPrompt"
         const val CONNECT_TIMEOUT_MS = 15_000
         const val READ_TIMEOUT_MS = 30_000
+        val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     }
 }
